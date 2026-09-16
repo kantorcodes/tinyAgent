@@ -6,16 +6,23 @@ import asyncio
 import json
 import shutil
 import subprocess
-from typing import Any
+from collections.abc import Mapping
 
-from tinyagent import AgentTool, AgentToolResult, TextContent, ToolCallContent, ToolLoopControl
+from tinyagent import (
+    AgentTool,
+    AgentToolResult,
+    BeforeToolCallFn,
+    TextContent,
+    ToolCallContent,
+    ToolLoopControl,
+)
 from tinyagent.agent_types import JsonObject
 
 _GUARD_TIMEOUT_SECONDS = 10
-_ALLOWED = {"allow", "benign"}
 
 
 def _guard_decision(command: str) -> tuple[bool, str]:
+    """Return true only for HOL Guard's explicit benign allow result."""
     executable = shutil.which("hol-guard")
     if not executable:
         return False, "hol-guard is not installed"
@@ -30,38 +37,58 @@ def _guard_decision(command: str) -> tuple[bool, str]:
         )
         if completed.returncode != 0:
             return False, "Guard evaluation failed"
-        payload: Any = json.loads(completed.stdout)
+        payload: object = json.loads(completed.stdout)
     except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError, ValueError):
         return False, "Guard evaluation failed"
 
     if not isinstance(payload, dict):
         return False, "Guard returned malformed output"
-    decision = str(payload.get("decision", "")).lower()
-    return decision in _ALLOWED, f"decision was {decision or 'unknown'}"
+    classification = payload.get("classification")
+    if not isinstance(classification, dict):
+        return False, "Guard returned malformed output"
+
+    explicitly_benign = classification.get("explicitly_benign") is True
+    minimum_action = payload.get("minimum_action")
+    allowed = explicitly_benign and minimum_action == "allow"
+    reason = (
+        f"minimum_action={minimum_action or 'unknown'}, "
+        f"explicitly_benign={explicitly_benign}"
+    )
+    return allowed, reason
 
 
-async def hol_guard_before_tool_call(
-    tool_call: ToolCallContent,
-    tool: AgentTool | None,
-    args: JsonObject,
-) -> ToolLoopControl | None:
-    """Block command-bearing calls unless HOL Guard explicitly allows them."""
-    del tool_call, tool
-    if "command" not in args:
-        return None
+def make_hol_guard_before_tool_call(command_fields: Mapping[str, str]) -> BeforeToolCallFn:
+    """Build a fail-closed Guard hook for selected command-bearing tools."""
 
-    command = args.get("command")
-    if not isinstance(command, str) or not command.strip():
-        allowed, reason = False, "missing command"
-    else:
+    async def before_tool_call(
+        tool_call: ToolCallContent,
+        tool: AgentTool | None,
+        args: JsonObject,
+    ) -> ToolLoopControl | None:
+        del tool
+        tool_name = tool_call.name
+        if tool_name is None:
+            return None
+        command_field = command_fields.get(tool_name)
+        if command_field is None:
+            return None
+
+        command = args.get(command_field)
+        if not isinstance(command, str) or not command.strip():
+            return _blocked("missing command input")
+
         allowed, reason = await asyncio.to_thread(_guard_decision, command)
-    if allowed:
-        return None
+        if allowed:
+            return None
+        return _blocked(reason)
 
-    message = f"Blocked by HOL Guard: {reason}"
+    return before_tool_call
+
+
+def _blocked(reason: str) -> ToolLoopControl:
     return ToolLoopControl(
         result=AgentToolResult(
-            content=[TextContent(text=message)],
+            content=[TextContent(text=f"Blocked by HOL Guard: {reason}")],
             details={"policy": "hol-guard"},
         ),
         is_error=True,
