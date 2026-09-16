@@ -20,7 +20,9 @@ async def test_explicit_allow_runs(monkeypatch: pytest.MonkeyPatch) -> None:
 
 async def test_review_blocks_before_tool(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(example, "_guard_decision", lambda command: (False, "decision was review"))
-    result = await example.hol_guard_before_tool_call(_tool_call(), None, {"command": "rm -rf build"})
+    result = await example.hol_guard_before_tool_call(
+        _tool_call(), None, {"command": "rm -rf build"}
+    )
     assert result is not None
     assert result.is_error is True
     assert result.result is not None
