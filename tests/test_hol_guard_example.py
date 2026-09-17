@@ -9,6 +9,7 @@ from tinyagent import ToolCallContent
 
 
 def _guard_output(*, explicitly_benign: bool, minimum_action: str) -> str:
+    """Build the minimal Guard JSON payload used by the regression tests."""
     benign = "true" if explicitly_benign else "false"
     return (
         '{"classification":{"explicitly_benign":'
@@ -22,6 +23,7 @@ def _patch_guard_run(
     stdout: str,
     returncode: int = 0,
 ) -> None:
+    """Patch the Guard CLI lookup and subprocess result for one test."""
     monkeypatch.setattr(example.shutil, "which", lambda name: "/usr/bin/hol-guard")
     monkeypatch.setattr(
         example.subprocess,
@@ -31,6 +33,7 @@ def _patch_guard_run(
 
 
 def test_guard_requires_explicit_benign_allow(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Allow execution only for the explicit benign plus allow combination."""
     _patch_guard_run(
         monkeypatch,
         stdout=_guard_output(explicitly_benign=True, minimum_action="allow"),
@@ -48,6 +51,7 @@ def test_guard_blocks_non_allow_results(
     explicitly_benign: bool,
     minimum_action: str,
 ) -> None:
+    """Block every Guard result that is not an explicit benign allow."""
     _patch_guard_run(
         monkeypatch,
         stdout=_guard_output(
@@ -60,6 +64,7 @@ def test_guard_blocks_non_allow_results(
 
 
 def test_guard_cli_failure_is_not_allow(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail closed when the Guard CLI itself returns an error."""
     _patch_guard_run(monkeypatch, stdout="", returncode=1)
     allowed, _ = example._guard_decision("git status")
     assert allowed is False
@@ -68,6 +73,7 @@ def test_guard_cli_failure_is_not_allow(monkeypatch: pytest.MonkeyPatch) -> None
 async def test_mapped_command_is_blocked_before_execution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Return TinyAgent's blocking control result for a mapped denied command."""
     monkeypatch.setattr(
         example,
         "_guard_decision",
@@ -85,7 +91,9 @@ async def test_mapped_command_is_blocked_before_execution(
 
 
 async def test_unmapped_tool_is_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Leave tool calls outside the configured Guard mapping untouched."""
     def unexpected_guard_call(command: str) -> tuple[bool, str]:
+        """Fail if the Guard evaluator is called for an unmapped tool."""
         raise AssertionError(f"Guard should not run for unmapped tool: {command}")
 
     monkeypatch.setattr(example, "_guard_decision", unexpected_guard_call)
