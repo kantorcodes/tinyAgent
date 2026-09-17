@@ -90,6 +90,27 @@ async def test_mapped_command_is_blocked_before_execution(
     assert result.result.details == {"policy": "hol-guard"}
 
 
+@pytest.mark.parametrize("arguments", [{}, {"command": ""}, {"command": "   "}, {"command": 123}])
+async def test_malformed_mapped_command_is_blocked_without_guard_evaluation(
+    monkeypatch: pytest.MonkeyPatch,
+    arguments: dict[str, object],
+) -> None:
+    """Fail closed before Guard evaluation when mapped command input is unusable."""
+    def unexpected_guard_call(command: str) -> tuple[bool, str]:
+        raise AssertionError(f"Guard should not run for malformed command input: {command}")
+
+    monkeypatch.setattr(example, "_guard_decision", unexpected_guard_call)
+    hook = example.make_hol_guard_before_tool_call({"shell": "command"})
+    call = ToolCallContent(id="tc_1", name="shell", arguments=arguments)
+
+    result = await hook(call, None, call.arguments)
+
+    assert result is not None
+    assert result.is_error is True
+    assert result.result is not None
+    assert result.result.details == {"policy": "hol-guard"}
+
+
 async def test_unmapped_tool_is_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
     """Leave tool calls outside the configured Guard mapping untouched."""
     def unexpected_guard_call(command: str) -> tuple[bool, str]:
