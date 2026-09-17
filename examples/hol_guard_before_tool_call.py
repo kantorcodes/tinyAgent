@@ -65,6 +65,7 @@ def make_hol_guard_before_tool_call(command_fields: Mapping[str, str]) -> Before
         tool: AgentTool | None,
         args: JsonObject,
     ) -> ToolLoopControl | None:
+        """Block mapped tool calls unless HOL Guard explicitly allows the command."""
         del tool
         tool_name = tool_call.name
         if tool_name is None:
@@ -86,6 +87,7 @@ def make_hol_guard_before_tool_call(command_fields: Mapping[str, str]) -> Before
 
 
 def _blocked(reason: str) -> ToolLoopControl:
+    """Return TinyAgent's pre-tool control result for a Guard denial."""
     return ToolLoopControl(
         result=AgentToolResult(
             content=[TextContent(text=f"Blocked by HOL Guard: {reason}")],
