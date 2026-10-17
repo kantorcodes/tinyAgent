@@ -29,7 +29,7 @@ def _guard_decision(command: str) -> tuple[bool, str]:
 
     try:
         completed = subprocess.run(
-            [executable, "command", "test", command, "--json"],
+            [executable, "command", "test", "--json", "--", command],
             capture_output=True,
             text=True,
             timeout=_GUARD_TIMEOUT_SECONDS,
