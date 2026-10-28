@@ -131,6 +131,7 @@ def test_conflicting_policy_action_fails_closed(
 @pytest.mark.parametrize(
     "hook_output",
     [
+        None,
         {"permissionDecision": "deny", "hookEventName": "PreToolUse"},
         {"permissionDecision": "ask", "hookEventName": "PreToolUse"},
         {"permissionDecision": "allow", "hookEventName": "PostToolUse"},
