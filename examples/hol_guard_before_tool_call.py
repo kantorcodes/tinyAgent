@@ -58,6 +58,15 @@ def _guard_decision(command: str) -> tuple[bool, str]:
     ):
         return False, "Guard explicitly stopped tool continuation"
 
+    # A concrete stop/review action cannot be weakened by the command classifier.
+    # Command inspection may report "not_run" when no runtime policy was evaluated.
+    policy_action = payload.get("policy_action")
+    if policy_action is not None and (
+        not isinstance(policy_action, str)
+        or policy_action.strip().lower() not in {"allow", "not_run"}
+    ):
+        return False, "Guard explicitly reported a non-allow policy action"
+
     explicitly_benign = classification.get("explicitly_benign") is True
     minimum_action = payload.get("minimum_action")
     allowed = explicitly_benign and minimum_action == "allow"
