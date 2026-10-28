@@ -1,4 +1,8 @@
-"""Use HOL Guard at TinyAgent's before_tool_call boundary."""
+"""Use HOL Guard's command classifier at TinyAgent's before_tool_call boundary.
+
+This explicitly benign command filter runs before mapped tools execute. The
+command-test CLI does not evaluate final runtime policy or issue approvals.
+"""
 
 from __future__ import annotations
 
@@ -57,6 +61,16 @@ def _guard_decision(command: str) -> tuple[bool, str]:
         and (not isinstance(decision, str) or decision.strip().lower() != "allow")
     ):
         return False, "Guard explicitly stopped tool continuation"
+
+    # Reject contradictory hook-level results if an extended Guard response
+    # includes them. The command-test classifier normally has no hook envelope.
+    hook_output = payload.get("hookSpecificOutput")
+    if hook_output is not None:
+        if not isinstance(hook_output, dict) or (
+            hook_output.get("permissionDecision") != "allow"
+            or hook_output.get("hookEventName", "PreToolUse") != "PreToolUse"
+        ):
+            return False, "Guard hook response contradicts a benign classification"
 
     # A concrete stop/review action cannot be weakened by the command classifier.
     # Command inspection may report "not_run" when no runtime policy was evaluated.
