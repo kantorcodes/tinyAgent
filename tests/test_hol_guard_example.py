@@ -128,6 +128,35 @@ def test_conflicting_policy_action_fails_closed(
     assert "non-allow policy action" in reason
 
 
+@pytest.mark.parametrize(
+    "hook_output",
+    [
+        {"permissionDecision": "deny", "hookEventName": "PreToolUse"},
+        {"permissionDecision": "ask", "hookEventName": "PreToolUse"},
+        {"permissionDecision": "allow", "hookEventName": "PostToolUse"},
+        "malformed",
+    ],
+)
+def test_hook_level_contradiction_blocks_benign_command(
+    monkeypatch: pytest.MonkeyPatch,
+    hook_output: object,
+) -> None:
+    """An extended Guard response must not authorize against an explicit stop."""
+    import json
+
+    _patch_guard_run(
+        monkeypatch,
+        stdout=json.dumps({
+            "minimum_action": "allow",
+            "classification": {"explicitly_benign": True},
+            "hookSpecificOutput": hook_output,
+        }),
+    )
+    allowed, reason = example._guard_decision("git status")
+    assert allowed is False
+    assert "contradicts" in reason
+
+
 def test_inspection_only_policy_state_preserves_benign_allow(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
