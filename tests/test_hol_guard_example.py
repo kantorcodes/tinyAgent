@@ -267,7 +267,7 @@ async def test_unmapped_tool_is_unchanged(monkeypatch: pytest.MonkeyPatch) -> No
     [
         OSError("Guard executable is not runnable"),
         subprocess.TimeoutExpired(cmd=["hol-guard"], timeout=10),
-        UnicodeDecodeError("utf-8", b"\\xff", 0, 1, "invalid byte"),
+        UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid byte"),
     ],
 )
 def test_guard_subprocess_exceptions_fail_closed(
