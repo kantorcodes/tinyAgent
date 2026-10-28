@@ -57,7 +57,7 @@ def _guard_decision(command: str) -> tuple[bool, str]:
     if ("continue" in payload and not isinstance(payload["continue"], bool)):
         return False, "Guard returned malformed continuation"
     if payload.get("continue") is False or (
-        decision is not None
+        "decision" in payload
         and (not isinstance(decision, str) or decision.strip().lower() != "allow")
     ):
         return False, "Guard explicitly stopped tool continuation"
