@@ -135,6 +135,7 @@ def test_conflicting_policy_action_fails_closed(
         {"permissionDecision": "deny", "hookEventName": "PreToolUse"},
         {"permissionDecision": "ask", "hookEventName": "PreToolUse"},
         {"permissionDecision": "allow", "hookEventName": "PostToolUse"},
+        {"permissionDecision": "allow"},
         "malformed",
     ],
 )
@@ -156,6 +157,27 @@ def test_hook_level_contradiction_blocks_benign_command(
     allowed, reason = example._guard_decision("git status")
     assert allowed is False
     assert "contradicts" in reason
+
+
+def test_matching_explicit_hook_allow_preserves_benign_classification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A correctly bound explicit hook allow does not disable benign classification."""
+    import json
+
+    _patch_guard_run(
+        monkeypatch,
+        stdout=json.dumps({
+            "minimum_action": "allow",
+            "classification": {"explicitly_benign": True},
+            "hookSpecificOutput": {
+                "permissionDecision": "allow",
+                "hookEventName": "PreToolUse",
+            },
+        }),
+    )
+    allowed, _ = example._guard_decision("git status")
+    assert allowed is True
 
 
 def test_inspection_only_policy_state_preserves_benign_allow(
