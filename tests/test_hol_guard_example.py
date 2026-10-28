@@ -104,6 +104,48 @@ def test_malformed_continue_fails_closed(
     assert "malformed continuation" in reason
 
 
+@pytest.mark.parametrize(
+    "policy_action",
+    ["block", "deny", "review", "ask", "warn", "sandbox-required", None, 1],
+)
+def test_conflicting_policy_action_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    policy_action: object,
+) -> None:
+    """Do not run a tool when a concrete policy stop contradicts benign inspection."""
+    import json
+
+    _patch_guard_run(
+        monkeypatch,
+        stdout=json.dumps({
+            "policy_action": policy_action,
+            "minimum_action": "allow",
+            "classification": {"explicitly_benign": True},
+        }),
+    )
+    allowed, reason = example._guard_decision("git status")
+    assert allowed is False
+    assert "non-allow policy action" in reason
+
+
+def test_inspection_only_policy_state_preserves_benign_allow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit inspection-only state is not a separate block decision."""
+    import json
+
+    _patch_guard_run(
+        monkeypatch,
+        stdout=json.dumps({
+            "policy_action": "not_run",
+            "minimum_action": "allow",
+            "classification": {"explicitly_benign": True},
+        }),
+    )
+    allowed, _ = example._guard_decision("git status")
+    assert allowed is True
+
+
 def test_guard_cli_failure_is_not_allow(monkeypatch: pytest.MonkeyPatch) -> None:
     """Fail closed when the Guard CLI itself returns an error."""
     _patch_guard_run(monkeypatch, stdout="", returncode=1)
