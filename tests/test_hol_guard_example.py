@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -259,3 +260,27 @@ async def test_unmapped_tool_is_unchanged(monkeypatch: pytest.MonkeyPatch) -> No
     result = await hook(call, None, call.arguments)
 
     assert result is None
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        OSError("Guard executable is not runnable"),
+        subprocess.TimeoutExpired(cmd=["hol-guard"], timeout=10),
+        UnicodeDecodeError("utf-8", b"\\xff", 0, 1, "invalid byte"),
+    ],
+)
+def test_guard_subprocess_exceptions_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    failure: Exception,
+) -> None:
+    """A launcher error, timeout or undecodable output must never authorize a tool."""
+    monkeypatch.setattr(example.shutil, "which", lambda name: "/usr/bin/hol-guard")
+
+    def failed_run(*_args: object, **_kwargs: object) -> None:
+        raise failure
+
+    monkeypatch.setattr(example.subprocess, "run", failed_run)
+    allowed, reason = example._guard_decision("git status")
+    assert allowed is False
+    assert reason == "Guard evaluation failed"
