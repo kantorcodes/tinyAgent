@@ -49,6 +49,9 @@ def _guard_decision(command: str) -> tuple[bool, str]:
 
     # An explicit Guard stop cannot be overridden by an allow-shaped classifier.
     decision = payload.get("decision")
+    # A malformed continuation field cannot authorize a protected tool.
+    if ("continue" in payload and not isinstance(payload["continue"], bool)):
+        return False, "Guard returned malformed continuation"
     if payload.get("continue") is False or (
         decision is not None
         and (not isinstance(decision, str) or decision.strip().lower() != "allow")
