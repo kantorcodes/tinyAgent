@@ -84,6 +84,26 @@ def test_explicit_stop_cannot_be_overridden_by_benign_classification(
     assert "explicitly stopped" in reason
 
 
+@pytest.mark.parametrize("bad_continue", [None, "false", 0, 1, [], {}])
+def test_malformed_continue_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    bad_continue: object,
+) -> None:
+    import json
+
+    _patch_guard_run(
+        monkeypatch,
+        stdout=json.dumps({
+            "continue": bad_continue,
+            "minimum_action": "allow",
+            "classification": {"explicitly_benign": True},
+        }),
+    )
+    allowed, reason = example._guard_decision("git status")
+    assert allowed is False
+    assert "malformed continuation" in reason
+
+
 def test_guard_cli_failure_is_not_allow(monkeypatch: pytest.MonkeyPatch) -> None:
     """Fail closed when the Guard CLI itself returns an error."""
     _patch_guard_run(monkeypatch, stdout="", returncode=1)
