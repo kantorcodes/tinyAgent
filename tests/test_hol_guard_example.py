@@ -63,6 +63,27 @@ def test_guard_blocks_non_allow_results(
     assert allowed is False
 
 
+@pytest.mark.parametrize(
+    "stop_signal",
+    [{"continue": False}, {"decision": "deny"}, {"decision": "review"}],
+)
+def test_explicit_stop_cannot_be_overridden_by_benign_classification(
+    monkeypatch: pytest.MonkeyPatch,
+    stop_signal: dict[str, object],
+) -> None:
+    import json
+
+    payload = {
+        "minimum_action": "allow",
+        "classification": {"explicitly_benign": True},
+        **stop_signal,
+    }
+    _patch_guard_run(monkeypatch, stdout=json.dumps(payload))
+    allowed, reason = example._guard_decision("git status")
+    assert allowed is False
+    assert "explicitly stopped" in reason
+
+
 def test_guard_cli_failure_is_not_allow(monkeypatch: pytest.MonkeyPatch) -> None:
     """Fail closed when the Guard CLI itself returns an error."""
     _patch_guard_run(monkeypatch, stdout="", returncode=1)
