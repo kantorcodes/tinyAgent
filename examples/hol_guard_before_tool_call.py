@@ -47,6 +47,14 @@ def _guard_decision(command: str) -> tuple[bool, str]:
     if not isinstance(classification, dict):
         return False, "Guard returned malformed output"
 
+    # An explicit Guard stop cannot be overridden by an allow-shaped classifier.
+    decision = payload.get("decision")
+    if payload.get("continue") is False or (
+        decision is not None
+        and (not isinstance(decision, str) or decision.strip().lower() != "allow")
+    ):
+        return False, "Guard explicitly stopped tool continuation"
+
     explicitly_benign = classification.get("explicitly_benign") is True
     minimum_action = payload.get("minimum_action")
     allowed = explicitly_benign and minimum_action == "allow"
