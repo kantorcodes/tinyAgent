@@ -65,7 +65,7 @@ def _guard_decision(command: str) -> tuple[bool, str]:
     # Reject contradictory hook-level results if an extended Guard response
     # includes them. The command-test classifier normally has no hook envelope.
     hook_output = payload.get("hookSpecificOutput")
-    if hook_output is not None:
+    if "hookSpecificOutput" in payload:
         if not isinstance(hook_output, dict) or (
             hook_output.get("permissionDecision") != "allow"
             or hook_output.get("hookEventName", "PreToolUse") != "PreToolUse"
@@ -75,7 +75,7 @@ def _guard_decision(command: str) -> tuple[bool, str]:
     # A concrete stop/review action cannot be weakened by the command classifier.
     # Command inspection may report "not_run" when no runtime policy was evaluated.
     policy_action = payload.get("policy_action")
-    if policy_action is not None and (
+    if "policy_action" in payload and (
         not isinstance(policy_action, str)
         or policy_action.strip().lower() not in {"allow", "not_run"}
     ):
