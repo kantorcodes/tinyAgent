@@ -68,7 +68,7 @@ def _guard_decision(command: str) -> tuple[bool, str]:
     if "hookSpecificOutput" in payload:
         if not isinstance(hook_output, dict) or (
             hook_output.get("permissionDecision") != "allow"
-            or hook_output.get("hookEventName", "PreToolUse") != "PreToolUse"
+            or hook_output.get("hookEventName") != "PreToolUse"
         ):
             return False, "Guard hook response contradicts a benign classification"
 
