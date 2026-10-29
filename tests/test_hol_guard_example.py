@@ -335,3 +335,23 @@ async def test_unexpected_evaluator_failure_returns_a_blocked_tool_result(
     assert result.result is not None
     assert result.result.details == {"policy": "hol-guard"}
     assert result.result.content[0].text == "Blocked by HOL Guard: HOL Guard evaluation failed"
+
+@pytest.mark.parametrize("arguments", [None, [], "unexpected arguments"])
+async def test_non_mapping_protected_tool_arguments_are_blocked(
+    monkeypatch: pytest.MonkeyPatch,
+    arguments: object,
+) -> None:
+    """The security hook must return a block even for invalid argument shapes."""
+    def unexpected_guard_call(command: str) -> tuple[bool, str]:
+        raise AssertionError(f"Guard should not run for invalid arguments: {command}")
+
+    monkeypatch.setattr(example, "_guard_decision", unexpected_guard_call)
+    hook = example.make_hol_guard_before_tool_call({"shell": "command"})
+    call = ToolCallContent(id="tc_invalid", name="shell", arguments={"command": "git status"})
+    result = await hook(call, None, arguments)  # type: ignore[arg-type]
+
+    assert result is not None
+    assert result.is_error is True
+    assert result.result is not None
+    assert result.result.details == {"policy": "hol-guard"}
+    assert result.result.content[0].text == "Blocked by HOL Guard: invalid tool arguments"
