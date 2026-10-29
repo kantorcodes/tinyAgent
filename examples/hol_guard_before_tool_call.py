@@ -2,12 +2,15 @@
 
 This explicitly benign command filter runs before mapped tools execute. The
 command-test CLI does not evaluate final runtime policy or issue approvals.
+Protected local tools with a `cwd` argument are inspected from that exact
+absolute, existing directory; remote execution roots are not supported.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 import subprocess
 from collections.abc import Mapping
@@ -34,8 +37,14 @@ def _reject_duplicate_guard_keys(pairs: list[tuple[str, object]]) -> dict[str, o
     return result
 
 
-def _guard_decision(command: str) -> tuple[bool, str]:
+def _guard_decision(command: str, cwd: str | None = None) -> tuple[bool, str]:
     """Return true only for HOL Guard's explicit benign allow result."""
+    # Command inspection is path-sensitive. Never inspect a different local
+    # directory when the protected tool has supplied its execution directory.
+    if cwd is not None and (
+        not isinstance(cwd, str) or not os.path.isabs(cwd) or not os.path.isdir(cwd)
+    ):
+        return False, "Guard cannot inspect the tool working directory"
     executable = shutil.which("hol-guard")
     if not executable:
         return False, "hol-guard is not installed"
@@ -47,6 +56,7 @@ def _guard_decision(command: str) -> tuple[bool, str]:
             text=True,
             timeout=_GUARD_TIMEOUT_SECONDS,
             check=False,
+            cwd=cwd,
         )
         if completed.returncode != 0:
             return False, "Guard evaluation failed"
@@ -126,8 +136,19 @@ def make_hol_guard_before_tool_call(command_fields: Mapping[str, str]) -> Before
         if not isinstance(command, str) or not command.strip():
             return _blocked("missing command input")
 
+        # For local tools with an explicit cwd, evaluate paths from that exact
+        # directory. A relative, missing, or nonlocal path must fail closed.
+        cwd = args.get("cwd")
+        if cwd is not None and (
+            not isinstance(cwd, str) or not os.path.isabs(cwd) or not os.path.isdir(cwd)
+        ):
+            return _blocked("invalid local working directory")
+
         try:
-            allowed, reason = await asyncio.to_thread(_guard_decision, command)
+            if cwd is None:
+                allowed, reason = await asyncio.to_thread(_guard_decision, command)
+            else:
+                allowed, reason = await asyncio.to_thread(_guard_decision, command, cwd)
         except Exception:
             # Threadpool and environment failures outside subprocess.run must
             # never escape this optional security boundary as a hook exception.
