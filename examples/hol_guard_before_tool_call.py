@@ -24,6 +24,15 @@ from tinyagent.agent_types import JsonObject
 
 _GUARD_TIMEOUT_SECONDS = 10
 
+def _reject_duplicate_guard_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    """Ambiguous Guard JSON must never let a later allow overwrite a stop."""
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate key in Guard JSON")
+        result[key] = value
+    return result
+
 
 def _guard_decision(command: str) -> tuple[bool, str]:
     """Return true only for HOL Guard's explicit benign allow result."""
@@ -41,7 +50,7 @@ def _guard_decision(command: str) -> tuple[bool, str]:
         )
         if completed.returncode != 0:
             return False, "Guard evaluation failed"
-        payload: object = json.loads(completed.stdout)
+        payload: object = json.loads(completed.stdout, object_pairs_hook=_reject_duplicate_guard_keys)
     except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError, ValueError):
         return False, "Guard evaluation failed"
 
