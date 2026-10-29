@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -355,3 +356,78 @@ async def test_non_mapping_protected_tool_arguments_are_blocked(
     assert result.result is not None
     assert result.result.details == {"policy": "hol-guard"}
     assert result.result.content[0].text == "Blocked by HOL Guard: invalid tool arguments"
+
+
+def test_guard_inspects_explicit_local_working_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Path-sensitive Guard checks must use the protected tool's cwd."""
+    seen: dict[str, object] = {}
+
+    def fake_run(argv: list[str], **kwargs: object) -> SimpleNamespace:
+        seen["cwd"] = kwargs.get("cwd")
+        seen["argv"] = argv
+        return SimpleNamespace(
+            returncode=0,
+            stdout=_guard_output(explicitly_benign=True, minimum_action="allow"),
+        )
+
+    monkeypatch.setattr(example.shutil, "which", lambda name: "/usr/bin/hol-guard")
+    monkeypatch.setattr(example.subprocess, "run", fake_run)
+    allowed, _ = example._guard_decision("cat config.toml", cwd=str(tmp_path))
+    assert allowed is True
+    assert seen["cwd"] == str(tmp_path)
+    assert seen["argv"][-1] == "cat config.toml"
+
+
+@pytest.mark.parametrize("bad_cwd", ["", ".", "../workspace", 0, False])
+def test_guard_rejects_invalid_working_directory_without_launching(
+    monkeypatch: pytest.MonkeyPatch, bad_cwd: object
+) -> None:
+    """Missing absolute local path cannot become an unsafe default directory."""
+    monkeypatch.setattr(
+        example.subprocess, "run",
+        lambda *args, **kwargs: pytest.fail("Guard must not inspect a different cwd"),
+    )
+    allowed, reason = example._guard_decision("cat config.toml", cwd=bad_cwd)  # type: ignore[arg-type]
+    assert allowed is False
+    assert "working directory" in reason
+
+
+async def test_mapped_local_cwd_is_forwarded_to_guard(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    seen: dict[str, object] = {}
+
+    def fake_guard(command: str, cwd: str | None = None) -> tuple[bool, str]:
+        seen.update({"command": command, "cwd": cwd})
+        return True, "guard_allow"
+
+    monkeypatch.setattr(example, "_guard_decision", fake_guard)
+    hook = example.make_hol_guard_before_tool_call({"shell": "command"})
+    call = ToolCallContent(
+        id="tc_cwd", name="shell",
+        arguments={"command": "cat ./config.toml", "cwd": str(tmp_path)},
+    )
+    result = await hook(call, None, call.arguments)
+    assert result is None
+    assert seen == {"command": "cat ./config.toml", "cwd": str(tmp_path)}
+
+
+@pytest.mark.parametrize("cwd", ["", ".", "../other", 45])
+async def test_mapped_tool_with_invalid_cwd_blocks_before_inspection(
+    monkeypatch: pytest.MonkeyPatch, cwd: object
+) -> None:
+    monkeypatch.setattr(
+        example, "_guard_decision",
+        lambda *args, **kwargs: pytest.fail("Invalid cwd must not call Guard"),
+    )
+    hook = example.make_hol_guard_before_tool_call({"shell": "command"})
+    call = ToolCallContent(
+        id="tc_bad_cwd", name="shell",
+        arguments={"command": "cat config.toml", "cwd": cwd},
+    )
+    result = await hook(call, None, call.arguments)
+    assert result is not None and result.is_error is True
+    assert result.result is not None
+    assert result.result.details == {"policy": "hol-guard"}
