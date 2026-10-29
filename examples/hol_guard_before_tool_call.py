@@ -51,7 +51,7 @@ def _guard_decision(command: str) -> tuple[bool, str]:
         if completed.returncode != 0:
             return False, "Guard evaluation failed"
         payload: object = json.loads(completed.stdout, object_pairs_hook=_reject_duplicate_guard_keys)
-    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError, ValueError):
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError, ValueError, RecursionError):
         return False, "Guard evaluation failed"
 
     if not isinstance(payload, dict):
