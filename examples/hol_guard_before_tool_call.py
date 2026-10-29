@@ -48,6 +48,9 @@ def _guard_decision(command: str, cwd: str | None = None) -> tuple[bool, str]:
     executable = shutil.which("hol-guard")
     if not executable:
         return False, "hol-guard is not installed"
+    # PATH may include relative directories. Resolve the binary BEFORE changing
+    # cwd, or subprocess could launch a different executable from the tool dir.
+    executable = os.path.realpath(executable)
 
     try:
         completed = subprocess.run(
