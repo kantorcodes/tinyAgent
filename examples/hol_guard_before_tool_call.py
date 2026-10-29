@@ -121,7 +121,12 @@ def make_hol_guard_before_tool_call(command_fields: Mapping[str, str]) -> Before
         if not isinstance(command, str) or not command.strip():
             return _blocked("missing command input")
 
-        allowed, reason = await asyncio.to_thread(_guard_decision, command)
+        try:
+            allowed, reason = await asyncio.to_thread(_guard_decision, command)
+        except Exception:
+            # Threadpool and environment failures outside subprocess.run must
+            # never escape this optional security boundary as a hook exception.
+            return _blocked("HOL Guard evaluation failed")
         if allowed:
             return None
         return _blocked(reason)
