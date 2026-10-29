@@ -199,6 +199,25 @@ def test_inspection_only_policy_state_preserves_benign_allow(
     assert allowed is True
 
 
+@pytest.mark.parametrize(
+    "stdout",
+    [
+        '{"classification":{"explicitly_benign":true},"minimum_action":"review","minimum_action":"allow"}',
+        '{"classification":{"explicitly_benign":false,"explicitly_benign":true},"minimum_action":"allow"}',
+        '{"classification":{"explicitly_benign":true},"continue":false,"continue":true,"minimum_action":"allow"}',
+    ],
+)
+def test_duplicate_guard_json_fields_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    stdout: str,
+) -> None:
+    """A later JSON key must not overwrite an earlier Guard review or deny."""
+    _patch_guard_run(monkeypatch, stdout=stdout)
+    allowed, reason = example._guard_decision("git status")
+    assert allowed is False
+    assert reason == "Guard evaluation failed"
+
+
 def test_guard_cli_failure_is_not_allow(monkeypatch: pytest.MonkeyPatch) -> None:
     """Fail closed when the Guard CLI itself returns an error."""
     _patch_guard_run(monkeypatch, stdout="", returncode=1)
