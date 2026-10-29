@@ -431,3 +431,28 @@ async def test_mapped_tool_with_invalid_cwd_blocks_before_inspection(
     assert result is not None and result.is_error is True
     assert result.result is not None
     assert result.result.details == {"policy": "hol-guard"}
+
+
+def test_guard_binary_is_fixed_before_switching_tool_cwd(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Relative PATH executables cannot be rebound in the protected directory."""
+    import os
+    seen: dict[str, object] = {}
+    relative_binary = "./fake-bin/hol-guard"
+    expected_binary = os.path.realpath(relative_binary)
+
+    def fake_run(argv: list[str], **kwargs: object) -> SimpleNamespace:
+        seen["argv"] = argv
+        seen["cwd"] = kwargs.get("cwd")
+        return SimpleNamespace(
+            returncode=0,
+            stdout=_guard_output(explicitly_benign=True, minimum_action="allow"),
+        )
+
+    monkeypatch.setattr(example.shutil, "which", lambda name: relative_binary)
+    monkeypatch.setattr(example.subprocess, "run", fake_run)
+    allowed, _ = example._guard_decision("cat config.toml", cwd=str(tmp_path))
+    assert allowed is True
+    assert seen["argv"][0] == expected_binary
+    assert seen["cwd"] == str(tmp_path)
