@@ -303,3 +303,16 @@ def test_guard_subprocess_exceptions_fail_closed(
     allowed, reason = example._guard_decision("git status")
     assert allowed is False
     assert reason == "Guard evaluation failed"
+
+
+def test_excessively_nested_guard_json_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Valid but overdeep Guard JSON must return a denial, not raise from the hook."""
+    deeply_nested_json = "[" * 20000 + "]" * 20000
+    _patch_guard_run(monkeypatch, stdout=deeply_nested_json)
+
+    allowed, reason = example._guard_decision("git status")
+
+    assert allowed is False
+    assert reason == "Guard evaluation failed"
