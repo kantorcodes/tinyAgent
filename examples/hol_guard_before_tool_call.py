@@ -117,6 +117,11 @@ def make_hol_guard_before_tool_call(command_fields: Mapping[str, str]) -> Before
         if command_field is None:
             return None
 
+        # Malformed arguments for a protected tool must not escape the hook
+        # before it can return TinyAgent's blocking control result.
+        if not isinstance(args, Mapping):
+            return _blocked("invalid tool arguments")
+
         command = args.get(command_field)
         if not isinstance(command, str) or not command.strip():
             return _blocked("missing command input")
