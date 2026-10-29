@@ -316,3 +316,22 @@ def test_excessively_nested_guard_json_fails_closed(
 
     assert allowed is False
     assert reason == "Guard evaluation failed"
+
+
+async def test_unexpected_evaluator_failure_returns_a_blocked_tool_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unexpected threaded Guard failure must not escape the policy hook."""
+    def broken_guard(_command: str) -> tuple[bool, str]:
+        raise RuntimeError("threaded Guard evaluation failed")
+
+    monkeypatch.setattr(example, "_guard_decision", broken_guard)
+    hook = example.make_hol_guard_before_tool_call({"shell": "command"})
+    call = ToolCallContent(id="tc_2", name="shell", arguments={"command": "git status"})
+    result = await hook(call, None, call.arguments)
+
+    assert result is not None
+    assert result.is_error is True
+    assert result.result is not None
+    assert result.result.details == {"policy": "hol-guard"}
+    assert result.result.content[0].text == "Blocked by HOL Guard: HOL Guard evaluation failed"
