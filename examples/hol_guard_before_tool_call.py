@@ -50,7 +50,29 @@ def _guard_decision(command: str, cwd: str | None = None) -> tuple[bool, str]:
         return False, "hol-guard is not installed"
     # PATH may include relative directories. Resolve the binary BEFORE changing
     # cwd, or subprocess could launch a different executable from the tool dir.
-    executable = os.path.realpath(executable)
+    # Bind the executable before changing cwd, then refuse binaries from the
+    # untrusted checkout. An absolute PATH entry can still point into a repo.
+    executable_path = os.path.abspath(executable)
+    executable = os.path.realpath(executable_path)
+    workspace = os.path.realpath(cwd or os.getcwd())
+    project_root = workspace
+    current = workspace
+    while True:
+        # Use the outermost Git root; a nested .git marker may be spoofed.
+        if os.path.lexists(os.path.join(current, ".git")):
+            project_root = current
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+    try:
+        if any(
+            os.path.commonpath((project_root, candidate)) == project_root
+            for candidate in (executable_path, executable)
+        ):
+            return False, "Guard executable is inside the untrusted worktree"
+    except ValueError:
+        return False, "Guard executable location could not be verified"
 
     try:
         completed = subprocess.run(
