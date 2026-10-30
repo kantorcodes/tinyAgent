@@ -123,9 +123,11 @@ def make_hol_guard_before_tool_call(command_fields: Mapping[str, str]) -> Before
     ) -> ToolLoopControl | None:
         """Block mapped tool calls unless HOL Guard explicitly allows the command."""
         del tool
-        tool_name = tool_call.name
-        if tool_name is None:
-            return None
+        # An absent or malformed name cannot establish that this is an
+        # unrelated tool. Deny instead of silently skipping the Guard gate.
+        tool_name = getattr(tool_call, "name", None)
+        if not isinstance(tool_name, str) or not tool_name.strip():
+            return _blocked("missing tool identity")
         command_field = command_fields.get(tool_name)
         if command_field is None:
             return None
