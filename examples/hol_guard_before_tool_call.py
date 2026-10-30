@@ -9,6 +9,7 @@ absolute, existing directory; remote execution roots are not supported.
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import os
 import shutil
@@ -159,13 +160,21 @@ def make_hol_guard_before_tool_call(command_fields: Mapping[str, str]) -> Before
         if not isinstance(args, Mapping):
             return _blocked("invalid tool arguments")
 
-        command = args.get(command_field)
+        # Preserve the complete JSON tool input across asynchronous inspection.
+        # A caller must not replace the command or other execution arguments
+        # after Guard classified the original request.
+        try:
+            guarded_args = copy.deepcopy(dict(args))
+        except Exception:
+            return _blocked("invalid tool arguments")
+
+        command = guarded_args.get(command_field)
         if not isinstance(command, str) or not command.strip():
             return _blocked("missing command input")
 
         # For local tools with an explicit cwd, evaluate paths from that exact
         # directory. A relative, missing, or nonlocal path must fail closed.
-        cwd = args.get("cwd")
+        cwd = guarded_args.get("cwd")
         if cwd is not None and (
             not isinstance(cwd, str) or not os.path.isabs(cwd) or not os.path.isdir(cwd)
         ):
@@ -181,6 +190,11 @@ def make_hol_guard_before_tool_call(command_fields: Mapping[str, str]) -> Before
             # never escape this optional security boundary as a hook exception.
             return _blocked("HOL Guard evaluation failed")
         if allowed:
+            try:
+                if copy.deepcopy(dict(args)) != guarded_args or getattr(tool_call, "name", None) != tool_name:
+                    return _blocked("tool inputs changed during Guard inspection")
+            except Exception:
+                return _blocked("tool inputs changed during Guard inspection")
             return None
         return _blocked(reason)
 
