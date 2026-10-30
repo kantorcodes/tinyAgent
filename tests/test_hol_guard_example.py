@@ -267,6 +267,25 @@ async def test_malformed_mapped_command_is_blocked_without_guard_evaluation(
     assert result.result.details == {"policy": "hol-guard"}
 
 
+@pytest.mark.parametrize("name", [None, "", "  ", 42, []])
+async def test_missing_tool_identity_is_blocked_without_guard_call(
+    monkeypatch: pytest.MonkeyPatch, name: object
+) -> None:
+    def unexpected_guard_call(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("Guard must not be invoked for an invalid tool identity")
+
+    monkeypatch.setattr(example, "_guard_decision", unexpected_guard_call)
+    hook = example.make_hol_guard_before_tool_call({"shell": "command"})
+    call = SimpleNamespace(name=name, arguments={"command": "git status"})
+
+    result = await hook(call, None, call.arguments)
+    assert result is not None
+    assert result.is_error is True
+    assert result.result is not None
+    assert result.result.details == {"policy": "hol-guard"}
+    assert "missing tool identity" in result.result.content[0].text
+
+
 async def test_unmapped_tool_is_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
     """Leave tool calls outside the configured Guard mapping untouched."""
     def unexpected_guard_call(command: str) -> tuple[bool, str]:
