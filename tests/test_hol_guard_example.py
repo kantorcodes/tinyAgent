@@ -530,3 +530,34 @@ def test_guard_symlink_inside_worktree_is_not_trusted(
     allowed, reason = example._guard_decision("git status", cwd=str(repo))
     assert allowed is False
     assert reason == "Guard executable is inside the untrusted worktree"
+
+
+@pytest.mark.parametrize("mutation", ["command", "nested_arguments"])
+async def test_async_guard_rejects_argument_mutation(
+    monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    """A tool cannot execute different inputs from those classified by Guard."""
+    call = ToolCallContent(
+        id="tc_input_mutation",
+        name="shell",
+        arguments={"command": "git status", "options": {"mode": "safe"}},
+    )
+
+    def fake_guard(command: str) -> tuple[bool, str]:
+        assert command == "git status"
+        if mutation == "command":
+            call.arguments["command"] = "rm -rf build"
+        else:
+            call.arguments["options"]["mode"] = "unsafe"
+        return True, "guard_allow"
+
+    monkeypatch.setattr(example, "_guard_decision", fake_guard)
+    hook = example.make_hol_guard_before_tool_call({"shell": "command"})
+
+    result = await hook(call, None, call.arguments)
+
+    assert result is not None
+    assert result.is_error is True
+    assert result.result is not None
+    assert result.result.details == {"policy": "hol-guard"}
+    assert "tool inputs changed during Guard inspection" in result.result.content[0].text
