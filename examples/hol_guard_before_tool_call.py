@@ -55,20 +55,30 @@ def _guard_decision(command: str, cwd: str | None = None) -> tuple[bool, str]:
     # untrusted checkout. An absolute PATH entry can still point into a repo.
     executable_path = os.path.abspath(executable)
     executable = os.path.realpath(executable_path)
-    workspace = os.path.realpath(cwd or os.getcwd())
-    project_root = workspace
-    current = workspace
-    while True:
-        # Use the outermost Git root; a nested .git marker may be spoofed.
-        if os.path.lexists(os.path.join(current, ".git")):
-            project_root = current
-        parent = os.path.dirname(current)
-        if parent == current:
-            break
-        current = parent
+    def outer_worktree_root(directory: str) -> str:
+        start = os.path.realpath(directory)
+        current = start
+        root = start
+        while True:
+            # Nested .git markers cannot conceal the enclosing checkout.
+            if os.path.lexists(os.path.join(current, ".git")):
+                root = current
+            parent = os.path.dirname(current)
+            if parent == current:
+                return root
+            current = parent
+
+    # PATH resolution happens in the hook-launch directory, which can be a
+    # different Git checkout than the Bash tool's explicitly selected cwd.
+    # Neither checkout may supply its own forged Guard allow executable.
+    worktrees = {
+        outer_worktree_root(os.getcwd()),
+        outer_worktree_root(cwd or os.getcwd()),
+    }
     try:
         if any(
             os.path.commonpath((project_root, candidate)) == project_root
+            for project_root in worktrees
             for candidate in (executable_path, executable)
         ):
             return False, "Guard executable is inside the untrusted worktree"
