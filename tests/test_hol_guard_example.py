@@ -475,3 +475,58 @@ def test_guard_binary_is_fixed_before_switching_tool_cwd(
     assert allowed is True
     assert seen["argv"][0] == expected_binary
     assert seen["cwd"] == str(tmp_path)
+
+@pytest.mark.parametrize("spoof_nested_git", [False, True])
+def test_checkout_guard_binary_cannot_impersonate_installed_guard(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, spoof_nested_git: bool
+) -> None:
+    """A project-owned binary must not supply an allow, even with a nested .git."""
+    repo = tmp_path / "repo"
+    nested = repo / "src"
+    bin_dir = repo / "bin"
+    nested.mkdir(parents=True)
+    bin_dir.mkdir()
+    (repo / ".git").mkdir()
+    if spoof_nested_git:
+        (nested / ".git").mkdir()
+    project_executable = bin_dir / "hol-guard"
+    project_executable.write_text("#!/bin/sh\\nexit 0\\n")
+
+    monkeypatch.setattr(example.shutil, "which", lambda _: str(project_executable))
+    monkeypatch.setattr(
+        example.subprocess,
+        "run",
+        lambda *args, **kwargs: pytest.fail("project-owned Guard must never launch"),
+    )
+    allowed, reason = example._guard_decision("git status", cwd=str(nested))
+    assert allowed is False
+    assert reason == "Guard executable is inside the untrusted worktree"
+
+
+def test_guard_symlink_inside_worktree_is_not_trusted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A project-local PATH symlink cannot launder a supposedly trusted target."""
+    repo = tmp_path / "project"
+    repo.mkdir()
+    (repo / ".git").mkdir()
+    trusted = tmp_path / "outside" / "hol-guard"
+    trusted.parent.mkdir()
+    trusted.write_text("#!/bin/sh\\nexit 0\\n")
+    local_bin = repo / "bin"
+    local_bin.mkdir()
+    candidate = local_bin / "hol-guard"
+    try:
+        candidate.symlink_to(trusted)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink creation is not supported")
+
+    monkeypatch.setattr(example.shutil, "which", lambda _: str(candidate))
+    monkeypatch.setattr(
+        example.subprocess,
+        "run",
+        lambda *args, **kwargs: pytest.fail("worktree-controlled symlink must not launch"),
+    )
+    allowed, reason = example._guard_decision("git status", cwd=str(repo))
+    assert allowed is False
+    assert reason == "Guard executable is inside the untrusted worktree"
