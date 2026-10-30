@@ -455,11 +455,74 @@ async def test_mapped_tool_with_invalid_cwd_blocks_before_inspection(
 def test_guard_binary_is_fixed_before_switching_tool_cwd(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Relative PATH executables cannot be rebound in the protected directory."""
-    import os
+    """Do not allow a relative PATH shim under the hook's launch checkout."""
+    launcher = tmp_path / "launcher"
+    launcher.mkdir()
+    (launcher / ".git").mkdir()
+    target = tmp_path / "target"
+    target.mkdir()
+    (target / ".git").mkdir()
+    monkeypatch.chdir(launcher)
+    monkeypatch.setattr(example.shutil, "which", lambda name: "./fake-bin/hol-guard")
+    monkeypatch.setattr(
+        example.subprocess, "run",
+        lambda *args, **kwargs: pytest.fail("launch-checkout shim must not execute"),
+    )
+    allowed, reason = example._guard_decision("cat config.toml", cwd=str(target))
+    assert allowed is False
+    assert reason == "Guard executable is inside the untrusted worktree"
+
+
+@pytest.mark.parametrize("symlinked", [False, True])
+def test_guard_rejects_launcher_checkout_binary_for_other_tool_cwd(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, symlinked: bool
+) -> None:
+    """An absolute executable in the launcher repo is untrusted across cwd changes."""
+    launcher = tmp_path / "launcher"
+    launcher.mkdir()
+    (launcher / ".git").mkdir()
+    executable = launcher / "bin" / "hol-guard"
+    executable.parent.mkdir()
+    if symlinked:
+        external = tmp_path / "external" / "hol-guard"
+        external.parent.mkdir()
+        external.write_text("test binary", encoding="utf-8")
+        try:
+            executable.symlink_to(external)
+        except (OSError, NotImplementedError):
+            pytest.skip("symlink creation is unavailable")
+    else:
+        executable.write_text("test binary", encoding="utf-8")
+    tool_cwd = tmp_path / "other-repo"
+    tool_cwd.mkdir()
+    (tool_cwd / ".git").mkdir()
+    monkeypatch.chdir(launcher)
+    monkeypatch.setattr(example.shutil, "which", lambda name: str(executable))
+    monkeypatch.setattr(
+        example.subprocess, "run",
+        lambda *args, **kwargs: pytest.fail("untrusted executable must not run"),
+    )
+    allowed, reason = example._guard_decision("pwd", cwd=str(tool_cwd))
+    assert allowed is False
+    assert reason == "Guard executable is inside the untrusted worktree"
+
+
+def test_guard_allows_external_installed_binary_for_other_tool_cwd(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A trusted external Guard remains usable when Bash chooses another repository."""
+    launcher = tmp_path / "launcher"
+    launcher.mkdir()
+    (launcher / ".git").mkdir()
+    tool_cwd = tmp_path / "other-repo"
+    tool_cwd.mkdir()
+    (tool_cwd / ".git").mkdir()
+    binary = tmp_path / "trusted-bin" / "hol-guard"
+    binary.parent.mkdir()
+    binary.write_text("test binary", encoding="utf-8")
+    monkeypatch.chdir(launcher)
+    monkeypatch.setattr(example.shutil, "which", lambda name: str(binary))
     seen: dict[str, object] = {}
-    relative_binary = "./fake-bin/hol-guard"
-    expected_binary = os.path.realpath(relative_binary)
 
     def fake_run(argv: list[str], **kwargs: object) -> SimpleNamespace:
         seen["argv"] = argv
@@ -469,12 +532,11 @@ def test_guard_binary_is_fixed_before_switching_tool_cwd(
             stdout=_guard_output(explicitly_benign=True, minimum_action="allow"),
         )
 
-    monkeypatch.setattr(example.shutil, "which", lambda name: relative_binary)
     monkeypatch.setattr(example.subprocess, "run", fake_run)
-    allowed, _ = example._guard_decision("cat config.toml", cwd=str(tmp_path))
+    allowed, _ = example._guard_decision("pwd", cwd=str(tool_cwd))
     assert allowed is True
-    assert seen["argv"][0] == expected_binary
-    assert seen["cwd"] == str(tmp_path)
+    assert seen["argv"][0] == str(binary)
+    assert seen["cwd"] == str(tool_cwd)
 
 @pytest.mark.parametrize("spoof_nested_git", [False, True])
 def test_checkout_guard_binary_cannot_impersonate_installed_guard(
